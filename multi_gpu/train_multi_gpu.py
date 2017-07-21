@@ -22,6 +22,7 @@ sys.path.append(['/usr/lib/python2.7.zip', '/usr/lib/python2.7', '/usr/lib/pytho
 
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_string('train_dir', 'train_multi', """Directory where to write event logs and checkpoint.""")
+tf.app.flags.DEFINE_string('checkpoint_dir', 'train_rev', """Directory where to load model""")
 tf.app.flags.DEFINE_integer('max_steps', 1000000, """Number of batches to run.""")
 tf.app.flags.DEFINE_integer('batch_size', 64, """Number of examples per batch""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False, """Whether to log device placement.""")
@@ -52,7 +53,8 @@ test_img_folder = '../nlvr-master/dev/images'
 
 sentence_log = 'sentence_log.txt'
 TOWER_NAME = 'tower'
-num_gpus = 2
+
+num_gpus = 4
 
 # Load dicts
 f = open('my_question_index_to_word.json', 'r')
@@ -190,7 +192,7 @@ def average_gradients(tower_grads):
             grads.append(expanded_g)
         
         # Average over the 'tower' dimension.
-        grad = tf.concat(grads, aixs = 0)
+        grad = tf.concat(grads, 0)
 #        grads = tf.stack(grads)
 #        grad = tf.squeeze(tf.reduce_mean(grads, 0), axis = 0)
         grad = tf.reduce_mean(grad, 0)
@@ -224,6 +226,8 @@ def train_multi_gpu():
         # Calculate the gradients for each model tower.
         tower_grads = []
         tower_inputs = []
+        tower_losses = []
+        tower_acc = []
         with tf.variable_scope(tf.get_variable_scope()):
             for i in xrange(num_gpus):
               with tf.device('/gpu:%d' % i):
@@ -232,6 +236,8 @@ def train_multi_gpu():
                   # constructs the entire CIFAR model but shares the variables across
                   # all towers.
                   loss, acc, tower_input = tower_loss(scope)
+                  tower_losses.append(loss)
+                  tower_acc.append(acc)
                   tower_inputs.append(tower_input)
                   # Reuse variables for the next tower.
     #              if i != 0:
@@ -242,6 +248,9 @@ def train_multi_gpu():
                   grads = opt.compute_gradients(loss)
                   # Keep track of the gradients across all towers.
                   tower_grads.append(grads)
+        
+        loss_avg = tf.reduce_mean(tf.stack(tower_losses))
+        loss_acc = tf.reduce_mean(tf.stack(tower_acc))
         
         metric_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
         metric_averages_op = metric_averages.apply([loss, acc])
@@ -291,7 +300,11 @@ def train_multi_gpu():
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.7, allow_growth = True)
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False, gpu_options = gpu_options))
         sess.run(init)
-#        saver.restore(sess, "log201707201015/train_rev/model.ckpt-34000")
+        ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            # Restores from checkpoint
+            print ('Restore from' + ckpt.model_checkpoint_path)
+            saver.restore(sess, ckpt.model_checkpoint_path)
     
         tf.train.start_queue_runners(sess = sess)
         summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
@@ -305,7 +318,7 @@ def train_multi_gpu():
             
 #            feed_dict = fill_multi_tower_feed_dict(tower_inputs)
 #            _, loss_value, accuracy_value = sess.run([train_op, loss, acc], feed_dict=feed_dict)
-            _, loss_value, accuracy_value = sess.run([train_op, loss, acc])
+            _, loss_value, accuracy_value = sess.run([train_op, tower_losses, tower_acc])
     
             duration = time.time() - start_time
             
@@ -320,7 +333,7 @@ def train_multi_gpu():
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
             if step % 1 == 0:
     #                num_examples_per_step = FLAGS.batch_size
-                examples_per_sec = FLAGS.batch_size / duration
+                examples_per_sec = FLAGS.batch_size * num_gpus / duration
     #                sec_per_batch = float(duration)
                 
                 format_str = ('%s: step %d, %.2f, loss = %.5f, average_loss = %.5f, accuracy = %.5f')
