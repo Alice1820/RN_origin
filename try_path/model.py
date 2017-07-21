@@ -42,127 +42,128 @@ ANSWER_DICT_LENGTH = 28
 
 conv_info = np.array([64, 64, 64, 64])
 
-def generate_path_unit(length):
-    eight_neighbor = [(0, 1), (1, 0), (1, 1)]
-    if length == 1:
-        unit_1 = [[(0, 1)], [(1, 0)], [(1, 1)]]
-        return unit_1
-    else:
-        unit = []
-#        unit.append()
-        unit_0 = generate_path_unit(length = length-1)
-        for path in unit_0:
-#            print (path)
-            for x, y in eight_neighbor:
-#                print (path)
-                x_new = path[-1][0] + x
-                y_new = path[-1][1] + y
-                path_new = []
-                path_new += (path)
-                path_new.append((x_new, y_new))
-#                print (path_new)
-                unit.append(path_new)
-        
-        return unit
-        
-def generate_paths(height, width, length):
+class RN:
+    def __init__(self, batch_size):
+        self.batch_size = batch_size
     
-    unit = generate_path_unit(length = length)
-    PATHS = []
-    for x in range(height):
-        for y in range(width):
-            for path in unit:
-#                print (path)
-                x_end = path[-1][0] + x
-                y_end = path[-1][1] + y
-                if x_end >= 0 and x_end <= height-1 and y_end >= 0 and y_end <= width-1:
+    def __call__(self, img, q, is_train):
+        g = self.CONV(img, q, is_train = is_train, scope='CONV')
+        logits = self.f_phi(g, is_train = is_train, scope='f_phi')
+        
+        return logits
+    
+    def generate_path_unit(self, length):
+        eight_neighbor = [(0, 1), (1, 0), (1, 1)]
+        if length == 1:
+            unit_1 = [[(0, 1)], [(1, 0)], [(1, 1)]]
+            return unit_1
+        else:
+            unit = []
+            unit_0 = self.generate_path_unit(length = length-1)
+            for path in unit_0:
+                for x, y in eight_neighbor:
+                    x_new = path[-1][0] + x
+                    y_new = path[-1][1] + y
                     path_new = []
-                    path_new.append((x, y))
-                    for x_move, y_move in path:
-                        path_new.append((x + x_move, y + y_move))
-                    PATHS.append(path_new)
-                    path_new.reverse()
-                    PATHS.append(path_new)
-#    print (len(PATHS))
-#    filename = "paths_" + str(height) + '_' + str(width) + '_' + str(length) + '.txt'
-#    print (filename)
-#    f = open('paths.txt', 'w')
-#    f.write(str(PATHS))
-#    f.close()
+                    path_new += (path)
+                    path_new.append((x_new, y_new))
+                    unit.append(path_new)
+            
+            return unit
+            
+    def generate_paths(self, height, width, length):
+        unit = self.generate_path_unit(length = length)
+        PATHS = []
+        for x in range(height):
+            for y in range(width):
+                for path in unit:
+    #                print (path)
+                    x_end = path[-1][0] + x
+                    y_end = path[-1][1] + y
+                    if x_end >= 0 and x_end <= height-1 and y_end >= 0 and y_end <= width-1:
+                        path_new = []
+                        path_new.append((x, y))
+                        for x_move, y_move in path:
+                            path_new.append((x + x_move, y + y_move))
+                        PATHS.append(path_new)
+                        path_new.reverse()
+                        PATHS.append(path_new)
+        return PATHS
     
-    return PATHS
-
-def concat_coor(o, i, d, batch_size):
-    coor = tf.tile(tf.expand_dims(
-        [float(int(i / d)) / d, (i % d) / d], axis=0), [batch_size, 1])
-    o = tf.concat([o, tf.to_float(coor)], axis=1)
-    return o
-        
-def g_theta(o_1, o_2, o_3, o_4, q, scope='g_theta', reuse=True):
-    with tf.variable_scope(scope, reuse=reuse) as scope:
-#        if not reuse: log.warn(scope.name)
-        g_1 = fc(tf.concat([o_1, o_2, o_3, o_4, q], axis=1), 256, name='g_1')
-        g_2 = fc(g_1, 256, name='g_2')
-        g_3 = fc(g_2, 256, name='g_3')
-        g_4 = fc(g_3, 256, name='g_4')
-        return g_4
-
-# Classifier: takes images as input and outputs class label [B, m]
-def CONV(PATHS, img, q, batch_size, is_train, scope='CONV'):
-    with tf.variable_scope(scope) as scope:
-#        log.warn(scope.name)
-        conv_1 = conv2d(img, conv_info[0], is_train, s_h=3, s_w=3, name='conv_1')
-        conv_2 = conv2d(conv_1, conv_info[1], is_train, s_h=3, s_w=3, name='conv_2')
-        conv_3 = conv2d(conv_2, conv_info[2], is_train, name='conv_3')
-        conv_4 = conv2d(conv_3, conv_info[3], is_train, name='conv_4')
-        
-        # eq.1 in the paper
-        # g_theta = (o_i, o_j, q)
-        # conv_4 [B, d, d, k]
-        print (conv_4.shape, 'conv_4.shape')
-        d = conv_4.get_shape().as_list()[1]
-        all_g = []
-#        PATHS = np.load('paths_7_7_3.npy')
-#        print (PATHS)
-        for j in range(len(PATHS)):
-            p = PATHS[j]
-            o_1 = conv_4[:, p[0][0], p[0][1], :]
-            i_1 = p[0][0] * d + p[0][1]
-            o_1 = concat_coor(o_1, i_1, d, batch_size)
+    def concat_coor(self, o, i, d, batch_size):
+        coor = tf.tile(tf.expand_dims(
+            [float(int(i / d)) / d, (i % d) / d], axis=0), [batch_size, 1])
+        o = tf.concat([o, tf.to_float(coor)], axis=1)
+        return o
             
-            o_2 = conv_4[:, p[1][0], p[1][1], :]
-            i_2 = p[1][0] * d + p[1][1]
-            o_2 = concat_coor(o_2, i_2, d, batch_size)
-            
-            o_3 = conv_4[:, p[2][0], p[2][1], :]
-            i_3 = p[2][0] * d + p[2][1]
-            o_3 = concat_coor(o_3, i_3, d, batch_size)
-            
-            o_4 = conv_4[:, p[3][0], p[3][1], :]
-            i_4 = p[3][0] * d + p[3][1]
-            o_4 = concat_coor(o_4, i_4, d, batch_size)
-            
-            if j == 0:
-                g_i_j = g_theta(o_1, o_2, o_3, o_4, q, reuse=False)
-            else:
-                g_i_j = g_theta(o_1, o_2, o_3, o_4, q, reuse=True)
-            
-            all_g.append(g_i_j)
+    def g_theta(self, o_1, o_2, o_3, o_4, q, scope='g_theta', reuse=True):
+        with tf.variable_scope(scope, reuse=reuse) as scope:
+    #        if not reuse: log.warn(scope.name)
+            g_1 = fc(tf.concat([o_1, o_2, o_3, o_4, q], axis=1), 256, name='g_1')
+            g_2 = fc(g_1, 256, name='g_2')
+            g_3 = fc(g_2, 256, name='g_3')
+            g_4 = fc(g_3, 256, name='g_4')
+            return g_4
+    
+    # Classifier: takes images as input and outputs class label [B, m]
+    def CONV(self, img, q, is_train, scope='CONV'):
 
-        all_g = tf.stack(all_g, axis=0)
-        print (all_g.shape, 'all_g.shape')
-        all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
-
-        return all_g
-
-def f_phi(g, is_train, scope='f_phi'):
-    with tf.variable_scope(scope) as scope:
-#        log.warn(scope.name)
-        fc_1 = fc(g, 256, name='fc_1')
-        fc_2 = fc(fc_1, 256, name='fc_2')
-        fc_2 = slim.dropout(fc_2, keep_prob=0.5, is_training=is_train, scope='fc_3/')
-        fc_3 = fc(fc_2, ANSWER_DICT_LENGTH, activation_fn=None, name='fc_3')
-        return fc_3
+        with tf.variable_scope(scope) as scope:
+    #        log.warn(scope.name)
+            conv_1 = conv2d(img, conv_info[0], is_train, s_h=3, s_w=3, name='conv_1')
+            conv_2 = conv2d(conv_1, conv_info[1], is_train, s_h=3, s_w=3, name='conv_2')
+            conv_3 = conv2d(conv_2, conv_info[2], is_train, name='conv_3')
+            conv_4 = conv2d(conv_3, conv_info[3], is_train, name='conv_4')
+            
+            # eq.1 in the paper
+            # g_theta = (o_i, o_j, q)
+            # conv_4 [B, d, d, k]
+            print (conv_4.shape, 'conv_4.shape')
+            d = conv_4.get_shape().as_list()[1]
+            PATHS = self.generate_paths(d, d, 3)
+            
+            all_g = []
+    #        PATHS = np.load('paths_7_7_3.npy')
+    #        print (PATHS)
+            for j in range(len(PATHS)):
+                p = PATHS[j]
+                o_1 = conv_4[:, p[0][0], p[0][1], :]
+                i_1 = p[0][0] * d + p[0][1]
+                o_1 = self.concat_coor(o_1, i_1, d, self.batch_size)
+                
+                o_2 = conv_4[:, p[1][0], p[1][1], :]
+                i_2 = p[1][0] * d + p[1][1]
+                o_2 = self.concat_coor(o_2, i_2, d, self.batch_size)
+                
+                o_3 = conv_4[:, p[2][0], p[2][1], :]
+                i_3 = p[2][0] * d + p[2][1]
+                o_3 = self.concat_coor(o_3, i_3, d, self.batch_size)
+                
+                o_4 = conv_4[:, p[3][0], p[3][1], :]
+                i_4 = p[3][0] * d + p[3][1]
+                o_4 = self.concat_coor(o_4, i_4, d, self.batch_size)
+                
+                if j == 0:
+                    g_i_j = self.g_theta(o_1, o_2, o_3, o_4, q, reuse=False)
+                else:
+                    g_i_j = self.g_theta(o_1, o_2, o_3, o_4, q, reuse=True)
+                
+                all_g.append(g_i_j)
+    
+            all_g = tf.stack(all_g, axis=0)
+            print (all_g.shape, 'all_g.shape')
+            all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
+    
+            return all_g
+    
+    def f_phi(self, g, is_train, scope='f_phi'):
+        with tf.variable_scope(scope) as scope:
+    #        log.warn(scope.name)
+            fc_1 = fc(g, 256, name='fc_1')
+            fc_2 = fc(fc_1, 256, name='fc_2')
+            fc_2 = slim.dropout(fc_2, keep_prob=0.5, is_training=is_train, scope='fc_3/')
+            fc_3 = fc(fc_2, ANSWER_DICT_LENGTH, activation_fn=None, name='fc_3')
+            return fc_3
 
 class LSTM:
     """"""
@@ -231,20 +232,24 @@ class sentence_embedding:
         return embedding, embedding_matrix
 
 def inference_demo(images, questions, answers, batch_size):
-    
+    # init classes to functions
     lstm = LSTM(layer_size = 128, batch_size = batch_size)
+    rn = RN(batch_size = batch_size)
     embedding_function = sentence_embedding(batch_size = batch_size)
     
     embedding, embedding_matrix = embedding_function(questions)
+    # reform embedd
     timestep_size = questions.shape[1]
     encoded_sentences = []
     for sentence in tf.unstack(embedding, axis = 1):
         encoded_sentences.append(sentence)
     lstm_encode = lstm(encoded_sentences, timestep_size = timestep_size)[-1]
     
-    PATHS = generate_paths(7, 7, 3)
-    g = CONV(PATHS, images, lstm_encode, batch_size = batch_size, is_train = True, scope='CONV')
-    logits = f_phi(g, is_train = True, scope='f_phi')
+#    g = CONV(PATHS, images, lstm_encode, batch_size = batch_size, is_train = True, scope='CONV')
+#    logits = f_phi(g, is_train = True, scope='f_phi')
+    
+    logits = rn(images, lstm_encode, is_train = True)
+    
     all_preds = tf.nn.softmax(logits)
     print (all_preds.shape, 'all_preds.shape')
     predict_labels = tf.argmax(all_preds, axis = 1)
