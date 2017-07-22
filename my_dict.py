@@ -47,8 +47,8 @@ def create_dict(file, images_path):
                 image = imread(images_path + '/' + image_filename, mode = 'RGB')
                 
 #                imsave('pic/' + str(js) + '.bmp', image)
-                print (question)
-                print (answer)
+#                print (question)
+#                print (answer)
                 # Build the dict
                 if answer not in my_answer_word_to_index:
                     my_answer_word_to_index[answer] = js_answer_word
