@@ -17,14 +17,14 @@ from tensorflow.python.platform import gfile
 import json
 from scipy.misc import imshow, imsave
 import re
-import sys
-sys.path.append(['/usr/lib/python2.7.zip', '/usr/lib/python2.7', '/usr/lib/python2.7/plat-linux2', '/usr/lib/python2.7/lib-tk', '/usr/lib/python2.7/lib-old', '/usr/lib/python2.7/lib-dynload', '/usr/lib/python2.7/site-packages'])
+#import sys
+#sys.path.append(['/usr/lib/python2.7.zip', '/usr/lib/python2.7', '/usr/lib/python2.7/plat-linux2', '/usr/lib/python2.7/lib-tk', '/usr/lib/python2.7/lib-old', '/usr/lib/python2.7/lib-dynload', '/usr/lib/python2.7/site-packages'])
 
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_string('train_dir', 'train_multi', """Directory where to write event logs and checkpoint.""")
-tf.app.flags.DEFINE_string('checkpoint_dir', 'train_rev', """Directory where to load model""")
+tf.app.flags.DEFINE_string('checkpoint_dir', 'train_multi', """Directory where to load model""")
 tf.app.flags.DEFINE_integer('max_steps', 1000000, """Number of batches to run.""")
-tf.app.flags.DEFINE_integer('batch_size', 64, """Number of examples per batch""")
+tf.app.flags.DEFINE_integer('batch_size', 16, """Number of examples per batch""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False, """Whether to log device placement.""")
 
 channels = 3
@@ -101,21 +101,25 @@ def read_and_decode(filename):
     return image, sentence, answer
 
 def generate_batch(batch_size, flag):
-#    image, sentence, answer = read_and_decode("/home/zhangxifan/tasks_emb/train_emb.tfrecords")
-#    image, sentence, answer = read_and_decode("/home/mi/RelationalReasoning/RelationalReasoning/tasks_emsb/train_emb.tfrecords")
     image, sentence, answer = read_and_decode('/home/zhangxifan/train_balance.tfrecords')
 #    image, sentence, answer = read_and_decode('/home/RelationalReasoning/train_balance.tfrecords')
 
     min_fraction_of_example_in_queue = 0.4
-    min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN * min_fraction_of_example_in_queue)
+#    min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN * min_fraction_of_example_in_queue)
+    min_queue_examples = 20000
     num_preprocess_threads = 5
     
-    images, sentences_batch, answers_batch = tf.train.shuffle_batch([image, sentence, answer],
+    if FLAGS.if_shuffle:
+        images, sentences_batch, answers_batch = tf.train.shuffle_batch([image, sentence, answer],
                                                  batch_size = batch_size,
                                                  num_threads = num_preprocess_threads,
                                                  capacity = min_queue_examples + 3 * batch_size,
                                                  min_after_dequeue = min_queue_examples)
-#    answers_batch = tf.squeeze(answers_batch, axis = 1)
+    else:
+        images, sentences_batch, answers_batch = tf.train.batch([image, sentence, answer],
+                                                     batch_size = batch_size,
+                                                     num_threads = num_preprocess_threads,
+                                                     capacity = min_queue_examples + 3 * batch_size)
     return images, sentences_batch, answers_batch
 
 def placeholder_inputs(batch_size):
@@ -128,7 +132,6 @@ def placeholder_inputs(batch_size):
         x_hat_placeholder.
         y_hat_placeholder.
     """
-#    n_samples = FLAGS.n_way * FLAGS.n_shot
 
     images_pl = tf.placeholder(tf.float32, shape=[batch_size, IMAGE_ROWS, IMAGE_COLOMNS, 3], name='images')
     sentences_pl = tf.placeholder(tf.int32, shape=[batch_size, MX_LEN_CUT], name='sentences')
@@ -160,11 +163,6 @@ def tower_loss(scope):
     tf.summary.scalar(acc_name + '(raw)', acc)
 
     total_loss = model.loss(logits, answers)
-    # Compute the moving average of all individual losses and the total loss.
-#    _ = model._add_loss_summaries(total_loss)
-#    
-#    with tf.control_dependencies([loss_averages_op]):
-#      total_loss = tf.identity(total_loss)
 
     return total_loss, acc, tower_inputs
 
@@ -183,7 +181,6 @@ def average_gradients(tower_grads):
     for grad_and_vars in zip(*tower_grads):
         # Note that each grad_and_vars looks like the following:
         #   ((grad0_gpu0, var0_gpu0), ... , (grad0_gpuN, var0_gpuN))
-#        print (grad_and_vars)
         grads = []
         for g, _ in grad_and_vars:
             # Add 0 dimension to the gradients to represent the tower.
@@ -193,8 +190,6 @@ def average_gradients(tower_grads):
         
         # Average over the 'tower' dimension.
         grad = tf.concat(grads, 0)
-#        grads = tf.stack(grads)
-#        grad = tf.squeeze(tf.reduce_mean(grads, 0), axis = 0)
         grad = tf.reduce_mean(grad, 0)
         # Keep in mind that the Variables are redundant because they are shared
         # across towers. So .. we will just return the first tower's pointer to
@@ -250,7 +245,7 @@ def train_multi_gpu():
                   tower_grads.append(grads)
         
         loss_avg = tf.reduce_mean(tf.stack(tower_losses))
-        loss_acc = tf.reduce_mean(tf.stack(tower_acc))
+        acc_avg = tf.reduce_mean(tf.stack(tower_acc))
         
         metric_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
         metric_averages_op = metric_averages.apply([loss, acc])
@@ -299,50 +294,69 @@ def train_multi_gpu():
         # Start running operations on the Graph.
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.7, allow_growth = True)
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False, gpu_options = gpu_options))
-        sess.run(init)
+
         ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             # Restores from checkpoint
             print ('Restore from' + ckpt.model_checkpoint_path)
             saver.restore(sess, ckpt.model_checkpoint_path)
+        else:
+            sess.run(init)
     
         tf.train.start_queue_runners(sess = sess)
         summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
     
-        average_loss = 0
-        for step_tmp in xrange(FLAGS.max_steps):
-            
-            step = step_tmp + 0
-            
-            start_time = time.time()
-            
-#            feed_dict = fill_multi_tower_feed_dict(tower_inputs)
-#            _, loss_value, accuracy_value = sess.run([train_op, loss, acc], feed_dict=feed_dict)
-            _, loss_value, accuracy_value = sess.run([train_op, tower_losses, tower_acc])
-    
-            duration = time.time() - start_time
-            
-    #        for i in range(FLAGS.batch_size):
-    #            # display
-    #            prediction_str = str(predict_labels_value[i])
-    #            label_str = str(answers_value[i])
-    #            print (answer_index_to_word[prediction_str], answer_index_to_word[label_str])
-    
-            average_loss += loss_value
-            
-            assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
-            if step % 1 == 0:
-    #                num_examples_per_step = FLAGS.batch_size
-                examples_per_sec = FLAGS.batch_size * num_gpus / duration
-    #                sec_per_batch = float(duration)
+        max_steps = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN/FLAGS.batch_size)
+        for epoch in range(FLAGS.num_epoch):
+            average_loss = 0
+            for step in xrange(max_steps):
                 
-                format_str = ('%s: step %d, %.2f, loss = %.5f, average_loss = %.5f, accuracy = %.5f')
-                print (format_str % (datetime.now(), step, examples_per_sec, loss_value, average_loss/(step + 1), accuracy_value))
+#                epoch_num = int(step * FLAGS.batch_size / NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN)
+#                step_tmp = int(step % int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN/FLAGS.batch_size))
+                
+                start_time = time.time()
+                
+    #            s = sess.run([sentences])
+    #            print (s)
+    #            _, loss_value, accuracy_value = sess.run([train_op, loss, acc])
+                _, loss_value, accuracy_value = sess.run([train_op, loss_avg, acc_avg])
+                
+    #            print (logits_value[0])
+    #            print (softmax_linear_value[0])
+                # test dataset
+    #            for b in range(FLAGS.batch_size):
+    #                imsave('pic/' + str(step) + '_' + str(b) + '.bmp', images_value[b])
+    #                for i in range(MX_LEN):
+    #    #                    f.write(str(sentences_value[0, i]) + ' ')
+    #                    if sentences_value[b, i] != 0 :
+    #                        print question_index_to_word[str(sentences_value[b, i])], # python2
+    #                print ('\n')
+    #                print (answer_index_to_word[str(answers_value[b])])
+    ##                print ('\n!')
+    
+                duration = time.time() - start_time
+                
+    #            for i in range(FLAGS.batch_size):
+    #                # display
+    #                prediction_str = str(predict_labels_value[i])
+    #                label_str = str(answers_value[i])
+    #                print (answer_index_to_word[prediction_str], answer_index_to_word[label_str])
+    
+                average_loss += loss_value
+                
+                assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
+                if step % 1 == 0:
+    #                num_examples_per_step = FLAGS.batch_size
+                    examples_per_sec = FLAGS.batch_size / duration
+    #                sec_per_batch = float(duration)
+                    
+                    format_str = ('%s: epoch %d, step %d/%d, %.2f, loss = %.5f, average_loss = %.5f, accuracy = %.5f')
+                    print (format_str % (datetime.now(), epoch, step, int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN/FLAGS.batch_size), examples_per_sec, loss_value, average_loss/(step + 1), accuracy_value))
     #                format_str = ('%s: step %d, loss = %d')
     #                print (format_str % (datetime.now(), step, loss_value))
-            
-            if step % 100 == 0:
-                # print sentences to file
+                
+                if step % 100 == 0:
+                    # print sentences to file
     #                f = open(sentence_log, 'a')
     #                f.write('step: ' + str(step) + ' ')
     #                for i in range(MX_LEN):
@@ -353,13 +367,13 @@ def train_multi_gpu():
     #                imsave('pic/' + str(step) + '.bmp', images_value[0])
     #                f.write('\n')
     #                f.close()
+                    
+                    summary_str = sess.run(summary_op)
+                    summary_writer.add_summary(summary_str, step)
                 
-                summary_str = sess.run(summary_op)
-                summary_writer.add_summary(summary_str, step)
-            
-            if step % 2000 == 0:
-                checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
-                saver.save(sess, checkpoint_path, global_step=step)
+                if step % 1000 == 0:
+                    checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
+                    saver.save(sess, checkpoint_path, global_step = epoch * max_steps + step)
 
 def main(argv = None):
     
