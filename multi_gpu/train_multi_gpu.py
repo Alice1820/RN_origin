@@ -24,8 +24,10 @@ FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_string('train_dir', 'train_multi', """Directory where to write event logs and checkpoint.""")
 tf.app.flags.DEFINE_string('checkpoint_dir', 'train_multi', """Directory where to load model""")
 tf.app.flags.DEFINE_integer('max_steps', 1000000, """Number of batches to run.""")
-tf.app.flags.DEFINE_integer('batch_size', 16, """Number of examples per batch""")
+tf.app.flags.DEFINE_integer('batch_size', 32, """Number of examples per batch""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False, """Whether to log device placement.""")
+tf.app.flags.DEFINE_boolean('if_balance', False, """Whether to use balanced dataset""")
+tf.app.flags.DEFINE_boolean('if_shuffle', False, """Whether to shuffle dataset""")
 
 channels = 3
 
@@ -101,7 +103,10 @@ def read_and_decode(filename):
     return image, sentence, answer
 
 def generate_batch(batch_size, flag):
-    image, sentence, answer = read_and_decode('/home/zhangxifan/train_balance.tfrecords')
+    if FLAGS.if_balance:
+        image, sentence, answer = read_and_decode('/home/zhangxifan/train_balance.tfrecords')
+    else:
+        image, sentence, answer = read_and_decode('/home/zhangxifan/train.tfrecords')
 #    image, sentence, answer = read_and_decode('/home/RelationalReasoning/train_balance.tfrecords')
 
     min_fraction_of_example_in_queue = 0.4
