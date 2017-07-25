@@ -130,20 +130,20 @@ class RN:
             for j in range(len(PATHS)):
                 p = PATHS[j]
                 o_1 = conv_4[:, p[0][0], p[0][1], :]
-                i_1 = p[0][0] * d + p[0][1]
-                o_1 = self.concat_coor(o_1, i_1, d, t, self.batch_size)
+#                i_1 = p[0][0] * d + p[0][1]
+#                o_1 = self.concat_coor(o_1, i_1, d, t, self.batch_size)
                 
                 o_2 = conv_4[:, p[1][0], p[1][1], :]
-                i_2 = p[1][0] * d + p[1][1]
-                o_2 = self.concat_coor(o_2, i_2, d, t, self.batch_size)
+#                i_2 = p[1][0] * d + p[1][1]
+#                o_2 = self.concat_coor(o_2, i_2, d, t, self.batch_size)
                 
                 o_3 = conv_4[:, p[2][0], p[2][1], :]
-                i_3 = p[2][0] * d + p[2][1]
-                o_3 = self.concat_coor(o_3, i_3, d, t, self.batch_size)
+#                i_3 = p[2][0] * d + p[2][1]
+#                o_3 = self.concat_coor(o_3, i_3, d, t, self.batch_size)
                 
                 o_4 = conv_4[:, p[3][0], p[3][1], :]
-                i_4 = p[3][0] * d + p[3][1]
-                o_4 = self.concat_coor(o_4, i_4, d, t, self.batch_size)
+#                i_4 = p[3][0] * d + p[3][1]
+#                o_4 = self.concat_coor(o_4, i_4, d, t, self.batch_size)
                 
                 if j == 0:
                     g_i_j = self.g_theta(o_1, o_2, o_3, o_4, q, reuse=False)
