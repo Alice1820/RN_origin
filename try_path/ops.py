@@ -24,7 +24,7 @@ def huber_loss(labels, predictions, delta=1.0):
 
 
 def conv2d(input, output_shape, is_train, activation_fn=tf.nn.relu,
-           k_h=5, k_w=5, s_h=2, s_w=2, stddev=0.02, name="conv2d"):
+           k_h=3, k_w=3, s_h=2, s_w=2, stddev=0.02, name="conv2d"):
     with tf.variable_scope(name):
         w = tf.get_variable('w', [k_h, k_w, input.get_shape()[-1], output_shape],
                             initializer=tf.truncated_normal_initializer(stddev=stddev))

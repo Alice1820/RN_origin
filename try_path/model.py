@@ -27,14 +27,14 @@ weight_file = 'vgg16_weights.npz'
 NUM_CLASSES = 50
 #batch_size = 128
 MX_LEN = 64 # the max length of a sentence
-EMBEDDING_DIM = 50 # word look-up embeddings dim
+EMBEDDING_DIM = 32 # word look-up embeddings dim
 
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 700000
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
 
 MOVING_AVERAGE_DECAY = 0.9999
 NUM_EPOCHS_PER_DECAY = 350
-LEARNING_RATE_DECAY_FACTOR = 0.5
+LEARNING_RATE_DECAY_FACTOR = 0.1
 INITIAL_LEARNING_RATE = 2.5e-4
 
 QUESTION_DICT_LENGTH = 80
@@ -90,10 +90,11 @@ class RN:
                         PATHS.append(path_new)
         return PATHS
     
-    def concat_coor(self, o, i, d, batch_size):
+    def concat_coor(self, o, i, d, t, batch_size):
         coor = tf.tile(tf.expand_dims(
-            [float(int(i / d)) / d, (i % d) / d], axis=0), [batch_size, 1])
+            [float(int(i / t)) / d, (i % t) / t], axis=0), [batch_size, 1])
         o = tf.concat([o, tf.to_float(coor)], axis=1)
+#        print (float(int(i / t)) / d, (i % t) / t)
         return o
             
     def g_theta(self, o_1, o_2, o_3, o_4, q, scope='g_theta', reuse=True):
@@ -110,8 +111,8 @@ class RN:
 
         with tf.variable_scope(scope) as scope:
     #        log.warn(scope.name)
-            conv_1 = conv2d(img, conv_info[0], is_train, s_h=3, s_w=3, name='conv_1')
-            conv_2 = conv2d(conv_1, conv_info[1], is_train, s_h=3, s_w=3, name='conv_2')
+            conv_1 = conv2d(img, conv_info[0], is_train, name='conv_1')
+            conv_2 = conv2d(conv_1, conv_info[1], is_train, name='conv_2')
             conv_3 = conv2d(conv_2, conv_info[2], is_train, name='conv_3')
             conv_4 = conv2d(conv_3, conv_info[3], is_train, name='conv_4')
             
@@ -120,6 +121,7 @@ class RN:
             # conv_4 [B, d, d, k]
             print (conv_4.shape, 'conv_4.shape')
             d = conv_4.get_shape().as_list()[1]
+            t = conv_4.get_shape().as_list()[2]
             PATHS = self.generate_paths(d, d, 3)
             
             all_g = []
@@ -129,19 +131,19 @@ class RN:
                 p = PATHS[j]
                 o_1 = conv_4[:, p[0][0], p[0][1], :]
                 i_1 = p[0][0] * d + p[0][1]
-                o_1 = self.concat_coor(o_1, i_1, d, self.batch_size)
+                o_1 = self.concat_coor(o_1, i_1, d, t, self.batch_size)
                 
                 o_2 = conv_4[:, p[1][0], p[1][1], :]
                 i_2 = p[1][0] * d + p[1][1]
-                o_2 = self.concat_coor(o_2, i_2, d, self.batch_size)
+                o_2 = self.concat_coor(o_2, i_2, d, t, self.batch_size)
                 
                 o_3 = conv_4[:, p[2][0], p[2][1], :]
                 i_3 = p[2][0] * d + p[2][1]
-                o_3 = self.concat_coor(o_3, i_3, d, self.batch_size)
+                o_3 = self.concat_coor(o_3, i_3, d, t, self.batch_size)
                 
                 o_4 = conv_4[:, p[3][0], p[3][1], :]
                 i_4 = p[3][0] * d + p[3][1]
-                o_4 = self.concat_coor(o_4, i_4, d, self.batch_size)
+                o_4 = self.concat_coor(o_4, i_4, d, t, self.batch_size)
                 
                 if j == 0:
                     g_i_j = self.g_theta(o_1, o_2, o_3, o_4, q, reuse=False)
@@ -214,10 +216,9 @@ class sentence_embedding:
             embedding: [batch_size, MX_LEN, EMBEDDING_DIM]
         """
         with tf.variable_scope('embedding', reuse = self.reuse):
-            clevr_on_GLOVE = np.load('clevr_question_on_GLOVE.npy')
-            init = tf.constant_initializer(clevr_on_GLOVE)
-            embedding_matrix = tf.get_variable('embedding_matrix', shape = [self.dict_length + 1, EMBEDDING_DIM], dtype = tf.float32, 
-                                               initializer = init)
+#            clevr_on_GLOVE = np.load('clevr_question_on_GLOVE.npy')
+#            init = tf.constant_initializer(clevr_on_GLOVE)
+            embedding_matrix = tf.get_variable('embedding_matrix', shape = [self.dict_length + 1, EMBEDDING_DIM], dtype = tf.float32, initializer = tf.truncated_normal_initializer(stddev = 1/EMBEDDING_DIM))
             print (sentences.shape, 'sentences.shape')
             onehot_sentences = tf.one_hot(sentences, self.dict_length + 1) # [batch_size, MX_LEN, dict_length]
             print (onehot_sentences.shape, 'onehot_sentences.shape')
@@ -317,7 +318,7 @@ def train(total_loss, global_step):
     Create an optimizer and apply to all trainable variables. Add moving
     average for all trainable variables.
     """
-    decay_steps = 20000
+    decay_steps = 10000
 #    
     lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
                                     global_step,

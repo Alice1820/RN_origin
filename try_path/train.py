@@ -16,15 +16,16 @@ from datetime import datetime
 from tensorflow.python.platform import gfile
 import json
 from scipy.misc import imshow, imsave
+import random
 
 #import sys
 #sys.path.append(['/usr/lib/python2.7.zip', '/usr/lib/python2.7', '/usr/lib/python2.7/plat-linux2', '/usr/lib/python2.7/lib-tk', '/usr/lib/python2.7/lib-old', '/usr/lib/python2.7/lib-dynload', '/usr/lib/python2.7/sie'])
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_string('train_dir', 'train_rev_76', """Directory where to write event logs and checkpoint.""")
+tf.app.flags.DEFINE_string('train_dir', 'train_try_origin', """Directory where to write event logs and checkpoint.""")
 tf.app.flags.DEFINE_integer('num_epoch', 20, """Number of epoches to run.""")
 #tf.app.flags.DEFINE_integer('max_steps', 12667, """Number of batches to run per epoch.""")
-tf.app.flags.DEFINE_integer('batch_size', 512, """Number of examples per batch""")
+tf.app.flags.DEFINE_integer('batch_size', 64, """Number of examples per batch""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False, """Whether to log device placement.""")
 tf.app.flags.DEFINE_boolean('if_balance', False, """Whether to use balanced dataset""")
 tf.app.flags.DEFINE_boolean('if_shuffle', False, """Whether to shuffle dataset""")
@@ -92,37 +93,50 @@ def read_and_decode(filename):
 def generate_batch(batch_size, flag):
 #    image, sentence, answer = read_and_decode("/home/zhangxifan/tasks_emb/train_emb.tfrecords")
 #    image, sentence, answer = read_and_decode("/home/mi/RelationalReasoning/RelationalReasoning/tasks_emsb/train_emb.tfrecords")
-    image, sentence, answer = read_and_decode('/home/zhangxifan/train.tfrecords')
+    if FLAGS.if_balance:
+        image, sentence, answer = read_and_decode('/home/zhangxifan/train_balance.tfrecords')
+    else:
+        image, sentence, answer = read_and_decode('/home/zhangxifan/train.tfrecords')
 #    image, sentence, answer = read_and_decode('/home/RelationalReasoning/train_balance.tfrecords')
 
     min_fraction_of_example_in_queue = 0.4
-    min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN * min_fraction_of_example_in_queue)
+#    min_queue_examples = int(NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN * min_fraction_of_example_in_queue)
+    min_queue_examples = 10000
     num_preprocess_threads = 5
     
-#    images, sentences_batch, answers_batch = tf.train.shuffle_batch([image, sentence, answer],
-#                                                 batch_size = batch_size,
-#                                                 num_threads = num_preprocess_threads,
-#                                                 capacity = min_queue_examples + 3 * batch_size,
-#                                                 min_after_dequeue = 3 * batch_size)
-    images, sentences_batch, answers_batch = tf.train.batch([image, sentence, answer],
+    if FLAGS.if_shuffle:
+        images, sentences_batch, answers_batch = tf.train.shuffle_batch([image, sentence, answer],
                                                  batch_size = batch_size,
                                                  num_threads = num_preprocess_threads,
-                                                 capacity = min_queue_examples + 3 * batch_size)
+                                                 capacity = min_queue_examples + 3 * batch_size,
+                                                 min_after_dequeue = min_queue_examples)
+    else:
+        images, sentences_batch, answers_batch = tf.train.batch([image, sentence, answer],
+                                                     batch_size = batch_size,
+                                                     num_threads = num_preprocess_threads,
+                                                     capacity = min_queue_examples + 3 * batch_size)
 #                                                 min_after_dequeue = 3 * batch_size)
 #    answers_batch = tf.squeeze(answers_batch, axis = 1)
     return images, sentences_batch, answers_batch
 
 def main(argv = None):
     
-#    if gfile.Exists(FLAGS.train_dir):
-#        gfile.DeleteRecursively(FLAGS.train_dir)
-#        gfile.MakeDirs(FLAGS.train_dir)
+    if gfile.Exists(FLAGS.train_dir):
+        gfile.DeleteRecursively(FLAGS.train_dir)
+        gfile.MakeDirs(FLAGS.train_dir)
 
     with tf.Graph().as_default():
         global_step = tf.Variable(0, trainable = False)
         # Get images, sentences, labels batch for RN
         images, sentences, answers = generate_batch(batch_size=FLAGS.batch_size, flag='train')
-        images = tf.image.resize_bilinear(images, size = [240, 240])
+        # preprocess
+        images = tf.image.resize_bilinear(images, size = [128, 128])
+        images = tf.image.resize_image_with_crop_or_pad(images, target_height = 136, target_width = 136)
+        images = tf.random_crop(images, size = [FLAGS.batch_size, 128, 128, 3])
+        rota_range = 0.05 # rads
+        rota_range = rota_range * random.random()
+        images = tf.contrib.image.rotate(images, angles = rota_range)
+        
         tf.summary.image('image', tf.expand_dims(images[0], axis = 0))
         print (images)
         print (sentences)
