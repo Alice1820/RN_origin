@@ -169,10 +169,10 @@ def CONV(img, q, batch_size, is_train, scope='CONV'):
         all_g = []
         for i in range(d*t):
             o_i = conv_4[:, int(i / t), int(i % t), :]
-            o_i = concat_coor(o_i, i, d, t, batch_size)
+#            o_i = concat_coor(o_i, i, d, t, batch_size)
             for j in range(d*d):
                 o_j = conv_4[:, int(j / d), int(j % d), :]
-                o_j = concat_coor(o_j, j, d, t, batch_size)
+#                o_j = concat_coor(o_j, j, d, t, batch_size)
                 if i == 0 and j == 0:
                     g_i_j = g_theta(o_i, o_j, q, reuse=False)
                 else:
