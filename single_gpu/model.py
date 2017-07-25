@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jul  6 16:28:50 2017
-
+/home/mi/RelationalReasoning/RelationalReasoning/sep0_trained/model.py
 @author: xifan
 """
 from __future__ import absolute_import
@@ -25,9 +25,9 @@ TOWER_NAME = 'tower'
 weight_file = 'vgg16_weights.npz'
 
 NUM_CLASSES = 50
-BATCH_SIZE = 16
+#batch_size = 128
 MX_LEN = 64 # the max length of a sentence
-EMBEDDING_DIM = 50 # word look-up embeddings dim
+EMBEDDING_DIM = 32 # word look-up embeddings dim
 
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 700000
 NUM_EXAMPLES_PER_EPOCH_FOR_EVAL = 10000
@@ -36,7 +36,6 @@ MOVING_AVERAGE_DECAY = 0.9999
 NUM_EPOCHS_PER_DECAY = 350
 LEARNING_RATE_DECAY_FACTOR = 0.5
 INITIAL_LEARNING_RATE = 2.5e-4
-
 QUESTION_DICT_LENGTH = 80
 ANSWER_DICT_LENGTH = 28
 
@@ -137,9 +136,9 @@ def _variable_with_weight_decay(name, shape, stddev, wd):
 #        fc_2 = slim.dropout(fc_2, keep_prob=0.5, is_training=is_train, scope='fc_3/')
 #        fc_3 = fc(fc_2, ANSWER_DICT_LENGTH, activation_fn=None, name='fc_3')
 #        return fc_3
-def concat_coor(o, i, d):
+def concat_coor(o, i, d, t, batch_size):
     coor = tf.tile(tf.expand_dims(
-        [float(int(i / d)) / d, (i % d) / d], axis=0), [BATCH_SIZE, 1])
+        [float(int(i / t)) / d, (i % t) / t], axis=0), [batch_size, 1])
     o = tf.concat([o, tf.to_float(coor)], axis=1)
     return o
         
@@ -153,11 +152,11 @@ def g_theta(o_i, o_j, q, scope='g_theta', reuse=True):
         return g_4
 
 # Classifier: takes images as input and outputs class label [B, m]
-def CONV(img, q, is_train, scope='CONV'):
+def CONV(img, q, batch_size, is_train, scope='CONV'):
     with tf.variable_scope(scope) as scope:
 #        log.warn(scope.name)
-        conv_1 = conv2d(img, conv_info[0], is_train, s_h=3, s_w=3, name='conv_1')
-        conv_2 = conv2d(conv_1, conv_info[1], is_train, s_h=3, s_w=3, name='conv_2')
+        conv_1 = conv2d(img, conv_info[0], is_train, name='conv_1')
+        conv_2 = conv2d(conv_1, conv_info[1], is_train, name='conv_2')
         conv_3 = conv2d(conv_2, conv_info[2], is_train, name='conv_3')
         conv_4 = conv2d(conv_3, conv_info[3], is_train, name='conv_4')
 
@@ -166,13 +165,14 @@ def CONV(img, q, is_train, scope='CONV'):
         # conv_4 [B, d, d, k]
         print (conv_4.shape, 'conv_4.shape')
         d = conv_4.get_shape().as_list()[1]
+        t = conv_4.get_shape().as_list()[2]
         all_g = []
-        for i in range(d*d):
-            o_i = conv_4[:, int(i / d), int(i % d), :]
-            o_i = concat_coor(o_i, i, d)
+        for i in range(d*t):
+            o_i = conv_4[:, int(i / t), int(i % t), :]
+            o_i = concat_coor(o_i, i, d, t, batch_size)
             for j in range(d*d):
                 o_j = conv_4[:, int(j / d), int(j % d), :]
-                o_j = concat_coor(o_j, j, d)
+                o_j = concat_coor(o_j, j, d, t, batch_size)
                 if i == 0 and j == 0:
                     g_i_j = g_theta(o_i, o_j, q, reuse=False)
                 else:
@@ -487,7 +487,6 @@ def generate_MLP_inputs(inputs, gen_encode):
         inputs: cnn_features, returned from cnn_layers, [batch_size, 5, 3, 64]
         gen_code: [batch_size, 64]
     """
-    batch_size = BATCH_SIZE
     height = int(inputs.shape[1])
     width = int(inputs.shape[2])
     nchannels = int(inputs.shape[3])
@@ -585,10 +584,9 @@ class sentence_embedding:
             embedding: [batch_size, MX_LEN, EMBEDDING_DIM]
         """
         with tf.variable_scope('embedding', reuse = self.reuse):
-            clevr_on_GLOVE = np.load('clevr_question_on_GLOVE.npy')
-            init = tf.constant_initializer(clevr_on_GLOVE)
-            embedding_matrix = tf.get_variable('embedding_matrix', shape = [self.dict_length + 1, EMBEDDING_DIM], dtype = tf.float32, initializer = init)
-#            embedding_matrix = tf.Variable(clevr_on_GLOVE, name = 'embedding_matrix', dtype = tf.float32)
+#            clevr_on_GLOVE = np.load('clevr_question_on_GLOVE.npy')
+#            init = tf.constant_initializer(clevr_on_GLOVE)
+            embedding_matrix = tf.get_variable('embedding_matrix', shape = [self.dict_length + 1, EMBEDDING_DIM], dtype = tf.float32, initializer = tf.truncated_normal_initializer(stddev = 1/EMBEDDING_DIM))
             print (sentences.shape, 'sentences.shape')
             onehot_sentences = tf.one_hot(sentences, self.dict_length + 1) # [batch_size, MX_LEN, dict_length]
             print (onehot_sentences.shape, 'onehot_sentences.shape')
@@ -602,10 +600,10 @@ class sentence_embedding:
         
         return embedding, embedding_matrix
 
-def inference_demo(images, questions, answers):
+def inference_demo(images, questions, answers, batch_size):
     
-    lstm = LSTM(layer_size = 128, batch_size = BATCH_SIZE)
-    embedding_function = sentence_embedding(batch_size = BATCH_SIZE)
+    lstm = LSTM(layer_size = 128, batch_size = batch_size)
+    embedding_function = sentence_embedding(batch_size = batch_size)
     
     embedding, embedding_matrix = embedding_function(questions)
     timestep_size = questions.shape[1]
@@ -614,7 +612,7 @@ def inference_demo(images, questions, answers):
         encoded_sentences.append(sentence)
     lstm_encode = lstm(encoded_sentences, timestep_size = timestep_size)[-1]
     
-    g = CONV(images, lstm_encode, is_train = True, scope='CONV')
+    g = CONV(images, lstm_encode, batch_size = batch_size, is_train = True, scope='CONV')
     logits = f_phi(g, is_train = True, scope='f_phi')
     all_preds = tf.nn.softmax(logits)
     print (all_preds.shape, 'all_preds.shape')
@@ -622,69 +620,6 @@ def inference_demo(images, questions, answers):
     print (predict_labels.shape, 'predict_labels.shape')
     
     return logits, predict_labels
-
-    
-def inference(images, ws_batch, answers):
-    """
-    Build the RN model
-    Args:
-        images: Images returned from generate_batch, [batch_size, 320, 480, 3]
-        ws_batch: Sentences, [batch_size, MX_LEN = 50]
-        answers: [batch_size], 0~ANSWER_DICT_LENGTH-1
-    Returns:
-        logits
-    """
-    batch_size = BATCH_SIZE
-#    vgg = vgg16(images)
-    mlp_g = MLP_g(hidden_size = 256, batch_size = batch_size)
-    mlp_f = MLP_f(hidden_size = 256, batch_size = batch_size)
-    
-    # 128 units LSTM for question processing
-#    lstm = BidirectionalLSTM(layer_sizes = [64], batch_size = batch_size)
-    lstm = LSTM(layer_size = 128, batch_size = batch_size)
-    
-    # initiate 4-layer CNN
-    cnn = cnn_layers(batch_size, num_channels = 3 , layer_sizes=[64, 64, 64 ,64])
-    embedding_function = sentence_embedding(batch_size = batch_size)
-    
-    # trainable CNN
-    cnn_features = cnn(images, training = True)
-    print (cnn_features.shape, 'cnn_features.shape')
-    
-    # Embed questions
-    embedding, embedding_matrix = embedding_function(ws_batch)
-    encoded_sentences = []
-    for sentence in tf.unstack(embedding, axis = 1):
-        encoded_sentences.append(sentence)
-    print (embedding.shape, 'embedding.shape') # [batch_size, MX_LEN, EMBEDDING_DIM]
-    print (len(encoded_sentences), 'len(encoded_sentences)') # MX_LEN
-    print (encoded_sentences[0].shape, 'encoded_sentences[0].shape') # [batch_size, EMBEDDING_DIM]
-    # LSTM
-#    timestep_size = tf.argmin(ws_batch, axis = -1)
-    timestep_size = ws_batch.shape[1]
-    lstm_encode = lstm(encoded_sentences, timestep_size = timestep_size)[-1]
-    print (lstm_encode, 'lstm_encode.shape')
-
-    object_set = generate_MLP_inputs(cnn_features, lstm_encode)
-    print (object_set.shape, 'object_set.shape')
-    
-    # MLP g & f
-    encode_g = mlp_g(batch_size, object_set)
-    encode_g = tf.reduce_mean(encode_g, axis = 1)
-    print (encode_g.shape, 'encode_g.shape')
-    encode_f = mlp_f(batch_size, encode_g)
-    print (encode_f.shape, 'encode_f.shape')
-    
-    # softmax
-    with tf.variable_scope('linear_layer'):
-        weights = _variable_with_weight_decay('weights', shape = [ANSWER_DICT_LENGTH, ANSWER_DICT_LENGTH], stddev = 1/ANSWER_DICT_LENGTH, wd = 0.0)
-        biases = _variable_on_cpu('biases', [ANSWER_DICT_LENGTH], tf.constant_initializer(0.0))
-        softmax_linear = tf.add(tf.matmul(encode_f, weights), biases)
-        _activation_summary(softmax_linear)
-#    predict_labels = accuracy(logits = encode_f, answers = answers)
-#    cam = gradCAM(cnn_features = cnn_features[0], mlp_f = encode_f[0], img = images[0], layer_name = 'g_conv4', predicted_class = predict_labels[0], nb_classes = ANSWER_DICT_LENGTH)
-    
-    return softmax_linear, cnn_features
 
 def accuracy(logits, answers):
     """Calculate accuracy
@@ -746,7 +681,8 @@ def train(total_loss, global_step):
     Create an optimizer and apply to all trainable variables. Add moving
     average for all trainable variables.
     """
-    decay_steps = 1000000
+    decay_steps = 20000
+#    decay_steps = 50669
 #    
     lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
                                     global_step,
@@ -779,6 +715,7 @@ def train(total_loss, global_step):
         print (item.name)
     
     with tf.control_dependencies([apply_gradient_op, variables_averages_op]):
+#    with tf.control_dependencies([apply_gradient_op]):
       train_op = tf.no_op(name='train')
     return train_op
     
