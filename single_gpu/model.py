@@ -39,7 +39,7 @@ INITIAL_LEARNING_RATE = 2.5e-4
 QUESTION_DICT_LENGTH = 80
 ANSWER_DICT_LENGTH = 28
 
-conv_info = np.array([64, 64, 64, 64])
+conv_info = np.array([24, 24, 24, 24])
 
 def _activation_summary(x):
     """
@@ -151,6 +151,15 @@ def g_theta(o_i, o_j, q, scope='g_theta', reuse=True):
         g_4 = fc(g_3, 256, name='g_4')
         return g_4
 
+def g_theta_faster(inputs, scope='g_theta', reuse=True):
+    with tf.variable_scope(scope, reuse=reuse) as scope:
+#        if not reuse: log.warn(scope.name)
+        g_1 = fc(inputs, 256, name='g_1')
+        g_2 = fc(g_1, 256, name='g_2')
+        g_3 = fc(g_2, 256, name='g_3')
+        g_4 = fc(g_3, 256, name='g_4')
+        return g_4
+
 # Classifier: takes images as input and outputs class label [B, m]
 def CONV(img, q, batch_size, is_train, scope='CONV'):
     with tf.variable_scope(scope) as scope:
@@ -159,28 +168,31 @@ def CONV(img, q, batch_size, is_train, scope='CONV'):
         conv_2 = conv2d(conv_1, conv_info[1], is_train, name='conv_2')
         conv_3 = conv2d(conv_2, conv_info[2], is_train, name='conv_3')
         conv_4 = conv2d(conv_3, conv_info[3], is_train, name='conv_4')
-
-        # eq.1 in the paper
-        # g_theta = (o_i, o_j, q)
-        # conv_4 [B, d, d, k]
-        print (conv_4.shape, 'conv_4.shape')
-        d = conv_4.get_shape().as_list()[1]
-        t = conv_4.get_shape().as_list()[2]
-        all_g = []
-        for i in range(d*t):
-            o_i = conv_4[:, int(i / t), int(i % t), :]
-#            o_i = concat_coor(o_i, i, d, t, batch_size)
-            for j in range(d*d):
-                o_j = conv_4[:, int(j / d), int(j % d), :]
-#                o_j = concat_coor(o_j, j, d, t, batch_size)
-                if i == 0 and j == 0:
-                    g_i_j = g_theta(o_i, o_j, q, reuse=False)
-                else:
-                    g_i_j = g_theta(o_i, o_j, q, reuse=True)
-                all_g.append(g_i_j)
-
-        all_g = tf.stack(all_g, axis=0)
-        all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
+        
+        g_inputs = generate_MLP_inputs(conv_4, q)
+        all_g = g_theta_faster(g_inputs, reuse = False)
+        all_g = tf.reduce_mean(all_g, axis = 1)
+#        # eq.1 in the paper
+#        # g_theta = (o_i, o_j, q)
+#        # conv_4 [B, d, d, k]
+#        print (conv_4.shape, 'conv_4.shape')
+#        d = conv_4.get_shape().as_list()[1]
+#        t = conv_4.get_shape().as_list()[2]
+#        all_g = []
+#        for i in range(d*d):
+#            o_i = conv_4[:, int(i / d), int(i % d), :]
+##            o_i = concat_coor(o_i, i, d, t, batch_size)
+#            for j in range(d*d):
+#                o_j = conv_4[:, int(j / d), int(j % d), :]
+##                o_j = concat_coor(o_j, j, d, t, batch_size)
+#                if i == 0 and j == 0:
+#                    g_i_j = g_theta(o_i, o_j, q, reuse=False)
+#                else:
+#                    g_i_j = g_theta(o_i, o_j, q, reuse=True)
+#                all_g.append(g_i_j)
+#
+#        all_g = tf.stack(all_g, axis=0)
+#        all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
         return all_g
 
 def f_phi(g, is_train, scope='f_phi'):
@@ -588,16 +600,17 @@ class sentence_embedding:
 #            init = tf.constant_initializer(clevr_on_GLOVE)
             embedding_matrix = tf.get_variable('embedding_matrix', shape = [self.dict_length + 1, EMBEDDING_DIM], dtype = tf.float32, initializer = tf.truncated_normal_initializer(stddev = 1/EMBEDDING_DIM))
             print (sentences.shape, 'sentences.shape')
-            onehot_sentences = tf.one_hot(sentences, self.dict_length + 1) # [batch_size, MX_LEN, dict_length]
-            print (onehot_sentences.shape, 'onehot_sentences.shape')
-            # Embed sentences with embedding_matrix
-            embedding = []
-            for b in range(self.batch_size):
-                embedding_tmp = tf.matmul(onehot_sentences[b], embedding_matrix)
-                embedding.append(embedding_tmp)
-            embedding = tf.stack(embedding) # [batch_size, MX_LEN, EMBEDDING_DIM]
-        self.reuse = True
-        
+#            onehot_sentences = tf.one_hot(sentences, self.dict_length + 1) # [batch_size, MX_LEN, dict_length]
+#            print (onehot_sentences.shape, 'onehot_sentences.shape')
+#            # Embed sentences with embedding_matrix
+#            embedding = []
+#            for b in range(self.batch_size):
+#                embedding_tmp = tf.matmul(onehot_sentences[b], embedding_matrix)
+#                embedding.append(embedding_tmp)
+#            embedding = tf.stack(embedding) # [batch_size, MX_LEN, EMBEDDING_DIM]
+#        self.reuse = True
+            embedding = tf.nn.embedding_lookup(embedding_matrix, sentences)
+            print (embedding.shape, 'embedding.shape')
         return embedding, embedding_matrix
 
 def inference_demo(images, questions, answers, batch_size):
@@ -681,22 +694,23 @@ def train(total_loss, global_step):
     Create an optimizer and apply to all trainable variables. Add moving
     average for all trainable variables.
     """
-    decay_steps = 20000
-#    decay_steps = 50669
+#    decay_steps = 20000
+#    decay_steps = 699989
+#    decay_steps = 20000
 #    
-    lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
-                                    global_step,
-                                    decay_steps,
-                                    LEARNING_RATE_DECAY_FACTOR,
-                                    staircase = True)
-    tf.summary.scalar('learning_rate', lr)
+#    lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
+#                                    global_step,
+#                                    decay_steps,
+#                                    LEARNING_RATE_DECAY_FACTOR,
+#                                    staircase = True)
+#    tf.summary.scalar('learning_rate', lr)
     
     loss_average_op = _add_loss_summaries(total_loss)
     
     # Compute gradients
     with tf.control_dependencies([loss_average_op]):
         #opt = tf.train.GradientDescentOptimizer(lr)
-        opt = tf.train.AdamOptimizer(learning_rate = lr)
+        opt = tf.train.AdamOptimizer(learning_rate = INITIAL_LEARNING_RATE)
     grads = opt.compute_gradients(total_loss)
     # Apply gradients
     apply_gradient_op = opt.apply_gradients(grads, global_step = global_step)
