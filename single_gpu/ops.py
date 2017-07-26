@@ -29,13 +29,14 @@ def conv2d(input, output_shape, is_train, activation_fn=tf.nn.relu,
         w = tf.get_variable('w', [k_h, k_w, input.get_shape()[-1], output_shape],
                             initializer=tf.truncated_normal_initializer(stddev=stddev))
         conv = tf.nn.conv2d(input, w, strides=[1, s_h, s_w, 1], padding='SAME')
-        biases = tf.get_variable('biases', [output_shape],
-                                 initializer=tf.constant_initializer(0.0))
-        activation = activation_fn(conv + biases)
-        bn = tf.contrib.layers.batch_norm(activation, center=True, scale=True,
+#        biases = tf.get_variable('biases', [output_shape],
+#                                 initializer=tf.constant_initializer(0.0))
+#        activation = activation_fn(conv + biases)
+        bn = tf.contrib.layers.batch_norm(conv, center=True, scale=True,
                                           decay=0.9, is_training=is_train,
                                           updates_collections=None)
-    return bn
+        activation = activation_fn(bn)
+    return activation
 
 
 def fc(input, output_shape, activation_fn=tf.nn.relu, name="fc"):
